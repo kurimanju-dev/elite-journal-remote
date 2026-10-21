@@ -4,7 +4,7 @@ Copies Elite Dangerous journals to another computer. The receiver writes local f
 
 ## Install and build
 
-Get your OS/CPU's installer or CLI archive from [prereleases](https://github.com/kurimanju-dev/elite-journal-remote/releases). Downloads include `SHA256SUMS`. Packages are unsigned; macOS builds aren't notarized.
+Get your OS/CPU's installer or CLI archive from [prereleases](https://github.com/kurimanju-dev/elite-journal-remote/releases). Downloads include `SHA256SUMS`. macOS bundles use ad-hoc signing and aren't notarized. Other packages are unsigned.
 
 Use the same release or pairing key on both devices. Public builds share an extractable key. Create your own key on both ends for private access.
 

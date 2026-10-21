@@ -120,7 +120,7 @@ def prepare(directory, destination):
     return len(list(destination.iterdir()))
 
 
-def release_notes(version, tag, repository, commit, run_id):
+def release_notes(version, tag, repository, commit, run_id, changes=""):
     def link(target, kind, label):
         name = filenames(version, target)[kind]
         url = f'https://github.com/{repository}/releases/download/{quote(tag, safe="")}/{quote(name)}'
@@ -150,8 +150,10 @@ def release_notes(version, tag, repository, commit, run_id):
         lines.append(f'| {label} | {link(target, "cli", "Download .zip" if system == "windows" else "Download .tar.gz")} |')
     checksum = f'https://github.com/{repository}/releases/download/{quote(tag, safe="")}/SHA256SUMS'
     lines += ['', f'[SHA-256 checksums for every download]({checksum})', '',
-              'Use the same prerelease on both devices. Public builds share a public embedded pairing key; create and select your own private key on both devices for private access. Packages are unsigned; macOS builds are not notarized.', '',
+              'Use the same prerelease on both devices. Public builds share a public embedded pairing key; create and select your own private key on both devices for private access. macOS bundles are ad-hoc signed but not notarized; other packages are unsigned.', '',
               f'Version **{version}** · [Source commit `{commit[:8]}`](https://github.com/{repository}/commit/{commit}) · [Verified build](https://github.com/{repository}/actions/runs/{run_id})', '']
+    if changes.strip():
+        lines = ['## Changes', '', changes.strip(), ''] + lines
     return '\n'.join(lines)
 
 

@@ -1,6 +1,6 @@
 {
   "name": "elite-journal-relay",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "scripts": {
     "dev": "tauri dev --config desktop/src-tauri/tauri.conf.json",

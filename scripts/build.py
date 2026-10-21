@@ -147,6 +147,9 @@ def main():
         if args.debug: command.append('--debug')
         command += ['--', '--locked']
         run(command, env=env)
+        if target.endswith('-apple-darwin'):
+            for app in (build_dir / 'bundle' / 'macos').glob('*.app'):
+                run(['codesign', '--verify', '--deep', '--strict', '--verbose=2', str(app)], env=env)
         if '-linux-' in target:
             from arch_package import build_arch_package
             build_arch_package(ROOT, build_dir, target, env)

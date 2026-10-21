@@ -1,12 +1,6 @@
 name: Publish prerelease
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/prerelease.yml'
-      - 'scripts/publish_prerelease.py'
-      - 'scripts/release_assets.py'
   workflow_run:
     workflows: ['Build packages']
     types: [completed]
@@ -90,7 +84,8 @@ jobs:
         run: |
           python scripts/release_assets.py dist/packages dist/release-assets
           python - <<'PY'
-          import json, os, sys
+          import json, os, subprocess, sys
+          from urllib.parse import quote
           from pathlib import Path
           sys.path.insert(0, 'scripts')
           from publish_prerelease import publish
@@ -100,11 +95,21 @@ jobs:
           version = archive.name.removeprefix('elite-relay-').removesuffix('-aarch64-apple-darwin.tar.gz')
           tag = f"v{version}-pre.{run['run_number']}.{run['run_attempt']}"
           notes = Path('dist/release-notes.md')
-          notes.write_text(release_notes(version, tag, os.environ['GH_REPO'], run['head_sha'], run['id']), encoding='utf-8')
+          commit = json.loads(subprocess.check_output(['gh', 'api', f"repos/{os.environ['GH_REPO']}/commits/{run['head_sha']}"], text=True))
+          notes.write_text(release_notes(version, tag, os.environ['GH_REPO'], run['head_sha'], run['id'], changes=commit['commit']['message']), encoding='utf-8')
           url = publish(Path('dist/release-assets'), tag, run['head_sha'],
                         f'Elite Journal Relay {version} prerelease (build {run["run_number"]})',
                         notes, os.environ['GH_REPO'], os.environ.get('RETIRE_RELEASE'))
           with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as output:
               output.write(url + '\n')
           print(url)
+          pages = json.loads(subprocess.check_output(['gh', 'api', '--paginate', '--slurp', f"repos/{os.environ['GH_REPO']}/releases?per_page=100"], text=True))
+          for release in (release for page in pages for release in page):
+              body = release.get('body') or ''
+              if release['draft'] or '## Changes' in body:
+                  continue
+              ref = quote(release['tag_name'], safe='')
+              source = json.loads(subprocess.check_output(['gh', 'api', f"repos/{os.environ['GH_REPO']}/commits/{ref}"], text=True))
+              body = '## Changes\n\n' + source['commit']['message'].strip() + '\n\n' + body
+              subprocess.run(['gh', 'api', '--method', 'PATCH', f"repos/{os.environ['GH_REPO']}/releases/{release['id']}", '--input', '-'], input=json.dumps({'body': body}), text=True, stdout=subprocess.DEVNULL, check=True)
           PY
