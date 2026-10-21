@@ -1,0 +1,183 @@
+name: Build packages
+
+on:
+  push:
+    branches: ['**']
+    paths-ignore:
+      - '.github/workflows/prerelease.yml'
+      - 'scripts/publish_prerelease.py'
+      - 'scripts/release_assets.py'
+      - 'README.md'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: packages-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    outputs:
+      matrix: ${{ steps.prepare.outputs.matrix }}
+      key-artifact: ${{ steps.key.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - name: Pin main build commit for prerelease publication
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          python - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          version = json.loads(Path('desktop/src-tauri/tauri.conf.json').read_text())['version']
+          tag = f"v{version}-pre.{os.environ['GITHUB_RUN_NUMBER']}.{os.environ['GITHUB_RUN_ATTEMPT']}"
+          subprocess.run(['gh', 'api', '--method', 'POST', f"repos/{os.environ['GH_REPO']}/git/refs",
+                          '-f', 'ref=refs/tags/' + tag, '-f', 'sha=' + os.environ['GITHUB_SHA']], check=True)
+          PY
+      - name: Prepare matrix
+        id: prepare
+        run: |
+          python - <<'PY'
+          import json, os, secrets, sys
+          from pathlib import Path
+          sys.path.insert(0, 'scripts')
+          from build import TARGETS
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('matrix=' + json.dumps({'include': TARGETS}) + '\n')
+          key = secrets.token_hex(32)
+          print('::add-mask::' + key)
+          Path('build-pairing-key').write_text(key, encoding='ascii')
+          Path('build-pairing-key').chmod(0o600)
+          PY
+      - name: Share one build identity across architectures
+        uses: actions/upload-artifact@v7
+        id: key
+        with:
+          name: internal-pairing-${{ github.run_attempt }}
+          path: build-pairing-key
+          retention-days: 1
+          if-no-files-found: error
+
+  build:
+    needs: prepare
+    name: Package ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    env:
+      CARGO_INCREMENTAL: '0'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Install Linux SDK and packaging dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf rpm xdg-utils makepkg pacman-package-manager libarchive-tools zstd fakeroot
+      - name: Configure LLVM for Windows TLS builds
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (-not (Get-Command clang -ErrorAction SilentlyContinue)) {
+            $llvm = Join-Path $env:ProgramFiles 'LLVM\bin'
+            if (-not (Test-Path (Join-Path $llvm 'clang.exe'))) { throw 'LLVM/clang is required for ring on Windows ARM64' }
+            $llvm | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          }
+      - uses: actions/download-artifact@v8
+        with:
+          name: internal-pairing-${{ github.run_attempt }}
+          path: .build-tools/pairing
+      - name: Install shared build identity
+        shell: python
+        run: |
+          from pathlib import Path
+          import shutil
+          shutil.copyfile('.build-tools/pairing/build-pairing-key', '.pairing-key')
+          Path('.pairing-key').chmod(0o600)
+          Path('.build-tools/pairing/build-pairing-key').unlink()
+      - run: npm ci
+      - name: Verify Rust on the target platform
+        run: cargo check --locked --workspace --all-targets --target ${{ matrix.target }}
+      - name: Build GUI installers and CLI archive
+        run: python scripts/build.py --target ${{ matrix.target }}
+      - name: Upload platform packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: packages-${{ matrix.target }}
+          path: dist/packages/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+      - name: Remove build identity from runner
+        if: always()
+        shell: python
+        run: |
+          from pathlib import Path
+          Path('.pairing-key').unlink(missing_ok=True)
+          Path('.build-tools/pairing/build-pairing-key').unlink(missing_ok=True)
+
+  collect:
+    name: Verify all six packages
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: packages-*
+          path: dist/packages
+          merge-multiple: true
+      - run: python scripts/collect_packages.py dist/packages
+      - uses: actions/upload-artifact@v7
+        with:
+          name: elite-relay-all-platforms
+          path: dist/packages/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  cleanup:
+    name: Remove temporary pairing artifact
+    needs: [prepare, build]
+    if: always() && needs.prepare.outputs.key-artifact != '' && github.event.pull_request.head.repo.fork != true
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: write
+    steps:
+      - name: Delete temporary key artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ARTIFACT_ID: ${{ needs.prepare.outputs.key-artifact }}
+        run: gh api --method DELETE "repos/$GH_REPO/actions/artifacts/$ARTIFACT_ID"

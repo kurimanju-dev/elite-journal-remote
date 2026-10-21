@@ -1,0 +1,15 @@
+# Invoked by scripts/build.py after the binaries have been compiled and tested.
+pkgname=elite-journal-relay
+pkgver=${ELITE_RELAY_VERSION:?Use scripts/build.py to set the package version}
+pkgrel=1
+pkgdesc='Live Elite Dangerous journal relay for companion applications'
+arch=('x86_64' 'aarch64')
+license=('MIT')
+depends=('glibc' 'gcc-libs' 'gtk3' 'webkit2gtk-4.1')
+options=('!strip' '!debug')
+source=('payload.tar')
+sha256sums=("${ELITE_RELAY_PAYLOAD_SHA256:?Missing payload checksum}")
+
+package() {
+  cp -a "$srcdir/usr" "$pkgdir/"
+}

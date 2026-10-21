@@ -1,0 +1,110 @@
+name: Publish prerelease
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/prerelease.yml'
+      - 'scripts/publish_prerelease.py'
+      - 'scripts/release_assets.py'
+  workflow_run:
+    workflows: ['Build packages']
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Successful Build packages run ID to publish without rebuilding
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-prerelease
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      # Publisher code always comes from the trusted default branch. Only main
+      # push/manual Build packages runs can supply binaries for publication.
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - name: Validate source build
+        id: source
+        env:
+          SOURCE_RUN: ${{ inputs.run_id || github.event.workflow_run.id }}
+        run: |
+          python - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          import sys
+          sys.path.insert(0, 'scripts')
+          from build import TARGETS
+          repo = os.environ['GH_REPO']
+          def api(path):
+              return json.loads(subprocess.check_output(['gh', 'api', f'repos/{repo}/{path}'], text=True))
+          required = {'Verify all six packages'} | {'Package ' + entry['target'] for entry in TARGETS}
+          source = os.environ['SOURCE_RUN']
+          candidates = [api('actions/runs/' + source)] if source else api('actions/workflows/packages.yml/runs?branch=main&per_page=20')['workflow_runs']
+          run = None
+          for candidate in candidates:
+              if candidate['status'] != 'completed' or candidate['event'] not in ['push', 'workflow_dispatch'] or candidate['head_branch'] != 'main':
+                  continue
+              jobs = api(f"actions/runs/{candidate['id']}/jobs?per_page=100")['jobs']
+              successful = {job['name'] for job in jobs if job['conclusion'] == 'success'}
+              if required <= successful:
+                  run = candidate
+                  break
+          assert run is not None, 'No complete, verified six-platform build is available'
+          assert run['name'] == 'Build packages'
+          assert run['head_branch'] == 'main' and run['event'] in ['push', 'workflow_dispatch']
+          assert run['status'] == 'completed'
+          assert run['head_repository']['full_name'] == os.environ['GH_REPO']
+          Path('source-run.json').write_text(json.dumps(run))
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f"run_id={run['id']}\n")
+          PY
+      - uses: actions/download-artifact@v8
+        with:
+          name: elite-relay-all-platforms
+          run-id: ${{ steps.source.outputs.run_id }}
+          github-token: ${{ github.token }}
+          path: dist/packages
+      - name: Prepare and publish verified downloads
+        run: |
+          python scripts/release_assets.py dist/packages dist/release-assets
+          python - <<'PY'
+          import json, os, sys
+          from pathlib import Path
+          sys.path.insert(0, 'scripts')
+          from publish_prerelease import publish
+          from release_assets import release_notes
+          run = json.load(open('source-run.json'))
+          archive = next(Path('dist/packages').glob('elite-relay-*-aarch64-apple-darwin.tar.gz'))
+          version = archive.name.removeprefix('elite-relay-').removesuffix('-aarch64-apple-darwin.tar.gz')
+          tag = f"v{version}-pre.{run['run_number']}.{run['run_attempt']}"
+          notes = Path('dist/release-notes.md')
+          notes.write_text(release_notes(version, tag, os.environ['GH_REPO'], run['head_sha'], run['id']), encoding='utf-8')
+          url = publish(Path('dist/release-assets'), tag, run['head_sha'],
+                        f'Elite Journal Relay {version} prerelease (build {run["run_number"]})',
+                        notes, os.environ['GH_REPO'], os.environ.get('RETIRE_RELEASE'))
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as output:
+              output.write(url + '\n')
+          print(url)
+          PY

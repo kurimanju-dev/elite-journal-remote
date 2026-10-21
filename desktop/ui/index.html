@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Elite Journal Relay</title><link rel="stylesheet" href="style.css"><script src="app.js" type="module"></script></head>
+<body>
+<aside class="sidebar">
+  <div class="brand"><svg viewBox="0 0 32 32" width="32" height="32" aria-hidden="true"><path d="M4 10h22l-5-5M28 22H6l5 5" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Elite Journal<br>Relay</span></div>
+  <nav aria-label="Application"><a href="#connection" class="nav-current">Connection</a><a href="#activity">Activity log</a></nav>
+  <div class="sidebar-note">Journals for companion apps.</div>
+  <footer><span id="platform">Desktop app</span><span id="version"></span><span class="pair-label">Build pairing</span><code id="pair">—</code></footer>
+</aside>
+<main>
+  <header><div class="role-switch" role="group" aria-label="Relay role"><button id="receive-role" aria-pressed="true">Receive</button><button id="send-role" aria-pressed="false">Send</button></div><div class="status" role="status"><span id="indicator"></span><span id="phase">Loading…</span></div></header>
+  <div id="error" class="notice error" role="alert" hidden></div>
+  <div id="switch-notice" class="notice" hidden><span id="switch-message"></span><div><button id="confirm-switch">Stop &amp; switch</button><button id="cancel-switch" class="quiet">Cancel</button></div></div>
+  <section id="connection" aria-labelledby="heading">
+    <div class="section-heading"><h1 id="heading">Receive journals</h1><p id="description">Write live updates for companion apps.</p></div>
+    <form id="relay-form">
+      <fieldset id="configuration" disabled>
+        <section id="remote-section" class="form-section">
+          <h2>Remote</h2><label for="connect">Server address</label><div class="input-row"><input id="connect" name="connect" list="remotes" autocomplete="off" spellcheck="false" placeholder="auto or hostname:48933"><button id="auto" type="button">Find server</button></div><datalist id="remotes"></datalist><p class="hint">Use <code>auto</code> on a local network, or enter an address.</p>
+        </section>
+        <section class="form-section security-section"><label class="checkbox"><input type="checkbox" id="tls">Use TLS</label><p class="hint" id="transport-help">For remote connections outside an encrypted tunnel.</p></section>
+        <section class="form-section">
+          <h2 id="directory-heading">Destination</h2><p id="server-addresses" class="hint" hidden></p>
+          <div class="prefix-heading"><label for="profiles">Wine / Proton profile</label><button type="button" class="text-button" id="rescan">Rescan</button></div>
+          <div class="input-row"><select id="profiles"><option value="">Choose a profile…</option></select><button type="button" id="choose-prefix">Browse prefix…</button></div>
+          <p class="hint" id="prefix-help">Choose the prefix used by your companion apps.</p>
+          <label id="directory-label" for="directory">Journal directory</label><div class="input-row"><input id="directory" spellcheck="false" autocomplete="off" placeholder="Choose a journal folder"><button type="button" id="browse-directory">Browse…</button></div><p class="hint" id="directory-help">Files are written here. Deleted source files are kept.</p>
+        </section>
+        <details class="advanced" id="advanced"><summary>Advanced</summary><div class="advanced-body">
+          <div id="send-options" class="options-group" hidden><label for="listen">Listen address</label><input id="listen" spellcheck="false"><label for="journal_chunk_kib">Backfill chunk (KiB)</label><input type="number" min="16" max="4096" id="journal_chunk_kib"><p class="hint">Larger chunks help on slow links; live updates still go first.</p><div class="two-fields"><div><label for="reconcile_ms">Recovery scan (ms)</label><input type="number" min="10" step="1" id="reconcile_ms"></div><div><label for="verify_secs">Content check (seconds)</label><input type="number" min="1" step="1" id="verify_secs"></div></div><label class="checkbox"><input type="checkbox" id="discovery">Allow LAN discovery</label></div>
+          <div id="receive-options" class="options-group"><label for="snapshot_mode">Snapshot writes</label><select id="snapshot_mode"><option value="overwrite">Overwrite — native change notifications</option><option value="atomic">Atomic replace — rename-aware apps only</option></select><p class="hint">Open companion files can block atomic replacement.</p><label class="checkbox"><input type="checkbox" id="once">Sync once and stop</label></div>
+          <div id="tls-options" hidden>
+            <label for="tls_server_name">TLS server name</label><input id="tls_server_name" spellcheck="false" placeholder="elite-relay"><p class="hint">Must match the certificate name. It can differ from the address.</p>
+            <div id="tls-send"><label for="tls_cert">Server certificate (PEM)</label><div class="input-row"><input id="tls_cert" spellcheck="false"><button type="button" id="browse-cert">Browse…</button></div><label for="tls_key">TLS private key (PEM)</label><div class="input-row"><input id="tls_key" spellcheck="false"><button type="button" id="browse-private-key">Browse…</button></div><button type="button" id="generate-tls" class="generate-tls">Create TLS files…</button><p class="hint">Share server-cert.pem only. Keep server-key.pem here.</p></div>
+            <div id="tls-receive"><label for="tls_ca">Trusted certificate / CA (PEM)</label><div class="input-row"><input id="tls_ca" spellcheck="false" placeholder="Public roots if empty"><button type="button" id="browse-ca">Browse…</button></div><p class="hint">For generated TLS files, choose server-cert.pem. The name must match.</p></div>
+          </div>
+          <label for="key_file">Pairing key <span class="optional">optional</span></label><div class="input-row"><input id="key_file" placeholder="Use the embedded key"><button type="button" id="browse-key">Browse…</button><button type="button" id="generate-key">Create key…</button></div><p class="hint">Use the same private key on both devices.</p>
+          <label for="log_file">Log file <span class="optional">optional</span></label><div class="input-row"><input id="log_file" placeholder="Window only" spellcheck="false"><button type="button" id="browse-log">Choose…</button></div>
+          <label class="checkbox"><input type="checkbox" id="verbose">Debug logs</label>
+        </div></details>
+      </fieldset>
+      <div class="actions"><button class="primary" id="start" disabled>Start receiving</button><button type="button" id="stop" disabled>Stop</button><span id="save-state" role="status">Settings saved locally.</span></div>
+    </form>
+    <p class="security" id="security-summary">TCP authenticated · Not encrypted · Use a trusted network or tunnel</p>
+  </section>
+  <section id="activity" class="activity" aria-labelledby="activity-heading"><div class="activity-heading"><h2 id="activity-heading">Activity</h2><span id="totals">No transfers</span><div class="log-tools"><label for="log-filter" class="sr-only">Filter log</label><select id="log-filter"><option value="all">All levels</option><option value="warnings">Warnings &amp; errors</option></select><button class="text-button" id="clear-log">Clear</button></div></div><div id="log" class="log" role="log" aria-live="off" aria-label="Relay activity"><p class="log-empty">No activity yet.</p></div></section>
+</main>
+</body></html>

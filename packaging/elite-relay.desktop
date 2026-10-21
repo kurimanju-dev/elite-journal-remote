@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Elite Journal Relay
+Comment=Copy Elite Dangerous journals to companion apps
+Exec=elite-relay
+Icon=io.elitejournalrelay.desktop
+Terminal=false
+Categories=Utility;
+StartupWMClass=elite-relay

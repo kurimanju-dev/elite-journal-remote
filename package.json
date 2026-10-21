@@ -1,0 +1,14 @@
+{
+  "name": "elite-journal-relay",
+  "version": "0.3.0",
+  "private": true,
+  "scripts": {
+    "dev": "tauri dev --config desktop/src-tauri/tauri.conf.json",
+    "build": "tauri build --config desktop/src-tauri/tauri.conf.json",
+    "tauri": "tauri",
+    "check": "node --check desktop/ui/app.js"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}
